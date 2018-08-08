@@ -1,0 +1,242 @@
+namespace CarPricer
+{
+    #region Car
+    public class Car
+    {
+        public decimal PurchaseValue { get; set; }
+        public int AgeInMonths { get; set; }
+        public int NumberOfMiles { get; set; }
+        public int NumberOfPreviousOwners { get; set; }
+        public int NumberOfCollisions { get; set; }
+        public decimal FinalValue { get; set; }
+    }
+    #endregion Car
+
+    #region Price Determinator
+    public class PriceDeterminator
+    {
+        public decimal DetermineCarPrice(Car car)
+        {
+            // Start with the current value of the car
+            car.FinalValue = car.PurchaseValue;
+
+            // Set the link
+            PriceDeterminatorBase startLink = SetLink(car);
+
+            // Start the price calculation link
+            startLink.CalculatePrice(car);
+
+            return car.FinalValue;
+        }
+
+        private PriceDeterminatorBase SetLink(Car car)
+        {
+            // Set the determinators link
+            AgeDeterminator ageDeterminator = new AgeDeterminator();
+            MilesDeterminator milesDeterminator = new MilesDeterminator();
+            PreviousOwnerDeterminator previousOwnerDeterminator = new PreviousOwnerDeterminator();
+            CollisionsDeterminator collisionsDeterminator = new CollisionsDeterminator();
+
+            // then adjust for age, take that result then adjust for miles
+            ageDeterminator.SetNextDeterminator(milesDeterminator);
+            if (car.NumberOfPreviousOwners == 0)
+            {
+                // that if previous owner, had a positive effect, then it should be applied AFTER step 4
+                milesDeterminator.SetNextDeterminator(collisionsDeterminator);
+                collisionsDeterminator.SetNextDeterminator(previousOwnerDeterminator);
+            }
+            else
+            {
+                // If a negative effect, then BEFORE step 4.
+                milesDeterminator.SetNextDeterminator(previousOwnerDeterminator);
+                previousOwnerDeterminator.SetNextDeterminator(collisionsDeterminator);
+            }
+            return ageDeterminator;
+        }
+    }
+    #endregion Price Determinator
+
+    #region Price Determinator Criteria Classes
+    /// <summary>
+    /// Base class for all Price Determinators
+    /// </summary>
+    public abstract class PriceDeterminatorBase
+    {
+        #region Members
+        /// <summary>
+        /// Next Price Determinator in the link
+        /// </summary>
+        protected PriceDeterminatorBase _nextPriceDeterminator;
+        #endregion Members
+
+        #region Abstract Methods
+        /// <summary>
+        /// Calculates the final price of the car based on the rules for each price determinator
+        /// </summary>
+        /// <param name="car">Car object whose final price is to be calculated</param>
+        public abstract void CalculatePrice(Car car);
+        #endregion Abstract Methods
+
+        #region Public Methods
+        /// <summary>
+        /// Sets the next determinator in the link
+        /// </summary>
+        /// <param name="priceDeterminator"></param>
+        public void SetNextDeterminator(PriceDeterminatorBase priceDeterminator)
+        {
+            this._nextPriceDeterminator = priceDeterminator;
+        }
+        #endregion Public Methods
+
+
+        #region Protected Methods
+        /// <summary>
+        /// Invoke the next determinator in the link
+        /// </summary>
+        /// <param name="car"></param>
+        protected void SendToNextDeterminator(Car car)
+        {
+            // send to next determinator
+            if (_nextPriceDeterminator != null)
+            {
+                _nextPriceDeterminator.CalculatePrice(car);
+            }
+        }
+        #endregion Protected Methods
+    }
+
+    /// <summary>
+    /// Age-based Price Determinator
+    /// </summary>
+    public class AgeDeterminator : PriceDeterminatorBase
+    {
+        #region Private Members
+        const int MAX_AGE_LIMIT = 120;
+        const decimal REDUCED_PERCENTAGE_VALUE = 0.5M;
+        #endregion Private Members
+
+        /// <summary>
+        /// Calculate price based on age criteria
+        /// </summary>
+        /// <param name="car">Car object whose final price is to be calculated</param>
+        public override void CalculatePrice(Car car)
+        {          
+            // Calculate the price
+             car.FinalValue = car.FinalValue - GetReducedAgeValue(car);
+            // send to next price determinator in the link
+            SendToNextDeterminator(car);
+        }
+
+        /// <summary>
+        ///  Given the number of months of how old the car is, reduce its value one-half (0.5) percent.
+        /// </summary>
+        /// <param name="car"></param>
+        /// <returns>Reduced value</returns>
+        private decimal GetReducedAgeValue(Car car)
+        {
+            // After 10 years, it's value cannot be reduced further by age
+            int ageInMonths = car.AgeInMonths > MAX_AGE_LIMIT ? MAX_AGE_LIMIT : car.AgeInMonths;
+            // Given the number of months of how old the car is, reduce its value one-half (0.5) percent.
+            return ((decimal)ageInMonths * REDUCED_PERCENTAGE_VALUE * car.FinalValue) / 100;
+        }
+    }
+
+    /// <summary>
+    /// Miles-based Price Determinator
+    /// </summary>
+    public class MilesDeterminator : PriceDeterminatorBase
+    {
+        #region Private Members
+        private const int MILES_STEP = 1000;
+        private const int MAX_MILES = 150000;
+        private const decimal REDUCED_PERCENTAGE_VALUE = 0.2M;
+        #endregion Private Members
+
+        /// <summary>
+        /// Calculate price based on miles criteria
+        /// </summary>
+        /// <param name="car">Car object whose final price is to be calculated</param>
+        public override void CalculatePrice(Car car)
+        {
+            // For every 1,000 miles on the car, reduce its value by one-fifth of a percent(0.2). Do not consider remaining miles
+            car.FinalValue = car.FinalValue - GetMilesReducedValue(car);
+            // send to next price determinator in the link
+            SendToNextDeterminator(car);
+        }
+
+        private decimal GetMilesReducedValue(Car car)
+        {
+            // After 150,000 miles, it's value cannot be reduced further by miles.
+            int numberOfMiles = (car.NumberOfMiles > MAX_MILES) ? MAX_MILES : car.NumberOfMiles;
+            return ((numberOfMiles / MILES_STEP) * REDUCED_PERCENTAGE_VALUE * car.FinalValue) / 100;
+        }
+    }
+
+    /// <summary>
+    /// Previous owner-based Price Determinator
+    /// </summary>
+    public class PreviousOwnerDeterminator : PriceDeterminatorBase
+    {
+        #region Private Members
+        private const int MIN_PREVIOUS_OWNERS = 2;
+        private const decimal REDUCED_PERCENTAGE_VALUE = 25M;
+        private const decimal ADDED_PERCENTAGE_VALUE = 10M;
+        #endregion Private Members
+
+        /// <summary>
+        /// Calculate price based on previous owners criteria
+        /// </summary>
+        /// <param name="car">Car object whose final price is to be calculated</param>
+        public override void CalculatePrice(Car car)
+        {
+            // If the car has had more than 2 previous owners, reduce its value by (25) percent
+            if (car.NumberOfPreviousOwners > MIN_PREVIOUS_OWNERS)
+            {
+                car.FinalValue = car.FinalValue - ((REDUCED_PERCENTAGE_VALUE * car.FinalValue) / 100);
+            }
+
+            // If the car has had no previous  owners, add ten(10) percent of the FINAL car value at the end
+            if (car.NumberOfPreviousOwners == 0)
+            {
+                car.FinalValue += ((ADDED_PERCENTAGE_VALUE * car.FinalValue) / 100);
+            }
+            // send to next price determinator in the link
+            SendToNextDeterminator(car);
+        }
+    }
+
+    /// <summary>
+    /// Collisions-based Price Determinator
+    /// </summary>
+    public class CollisionsDeterminator : PriceDeterminatorBase
+    {
+        #region Private Members
+        private const int MAX_COLLISIONS = 5;
+        private const decimal REDUCED_PERCENTAGE_VALUE = 2M;
+        #endregion Private Members
+
+        /// <summary>
+        /// Calculate price based on collisions criteria
+        /// </summary>
+        /// <param name="car">Car object whose final price is to be calculated</param>
+        public override void CalculatePrice(Car car)
+        {
+            car.FinalValue = car.FinalValue - GetCollisionsReducedValue(car);
+            // send to next price determinator in the link
+            SendToNextDeterminator(car);
+        }
+
+        /// <summary>
+        /// For every reported collision the car has been in, remove two (2) percent of it's value up to five (5) collisions.
+        /// </summary>
+        /// <param name="car"></param>
+        /// <returns></returns>
+        private decimal GetCollisionsReducedValue(Car car)
+        {
+            int numberOfCollisions = car.NumberOfCollisions > MAX_COLLISIONS ? MAX_COLLISIONS : car.NumberOfCollisions;
+            return (numberOfCollisions * 2 * car.FinalValue) / 100;
+        }
+    }
+
+    #endregion Price Determinator Criteria Classes
+}
